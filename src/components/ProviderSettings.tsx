@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DEFAULT_MODEL_LABEL } from "@/lib/config";
+import { DEFAULT_MODEL, DEFAULT_MODEL_LABEL } from "@/lib/config";
 import type { Workspace } from "@/lib/useWorkspace";
 
 interface ProviderStatus {
@@ -21,7 +21,7 @@ type LoginEvent =
   | { type: "auth_url"; url: string; instructions?: string }
   | { type: "device_code"; userCode: string; verificationUri: string }
   | { type: "progress"; message: string }
-  | { type: "prompt"; promptType: string; message: string }
+  | { type: "prompt"; promptType: string; message: string; placeholder?: string; options?: readonly { id: string; label: string; description?: string }[] }
   | { type: "done" }
   | { type: "error"; error: string };
 
@@ -31,6 +31,8 @@ interface CodexState {
   authUrl?: string;
   deviceCode?: { userCode: string; verificationUri: string };
   needsCode?: boolean;
+  promptType?: string;
+  promptOptions?: readonly { id: string; label: string; description?: string }[];
   codeDraft: string;
   session?: string;
   done?: boolean;
@@ -72,6 +74,7 @@ export function ProviderSettings({ ws }: { ws: Workspace }) {
       body: JSON.stringify({ action: "setKey", provider: id, apiKey }),
     });
     setKeyDrafts((d) => ({ ...d, [id]: "" }));
+    if (id === "openai") ws.setModel({ ...DEFAULT_MODEL, provider: "openai" });
     await refresh();
   };
 
@@ -116,12 +119,13 @@ export function ProviderSettings({ ws }: { ws: Workspace }) {
     }
   };
 
-  const submitCode = async () => {
-    if (!codex.session || !codex.codeDraft.trim()) return;
+  const submitCode = async (selectedValue?: string) => {
+    const value = selectedValue ?? codex.codeDraft.trim();
+    if (!codex.session || !value) return;
     await fetch("/api/auth/codex", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session: codex.session, code: codex.codeDraft.trim() }),
+      body: JSON.stringify({ session: codex.session, code: value }),
     });
     setCodex((c) => ({ ...c, needsCode: false, codeDraft: "", log: [...c.log, "Submitted code…"] }));
   };
@@ -224,7 +228,16 @@ export function ProviderSettings({ ws }: { ws: Workspace }) {
                 <div className="max-h-32 overflow-y-auto whitespace-pre-wrap font-mono text-luna-secondary">
                   {codex.log.join("\n")}
                 </div>
-                {codex.needsCode && (
+                {codex.promptType === "select" && codex.promptOptions && (
+                  <div className="mt-2 grid gap-2">
+                    {codex.promptOptions.map((option) => (
+                      <button key={option.id} onClick={() => void submitCode(option.id)} className="rounded-md border border-luna-stroke px-3 py-2 text-left text-luna-primary hover:bg-white/[0.04]">
+                        {option.label}{option.description ? ` — ${option.description}` : ""}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {codex.needsCode && codex.promptType !== "select" && (
                   <div className="mt-2 flex gap-2">
                     <input
                       value={codex.codeDraft}
@@ -232,7 +245,7 @@ export function ProviderSettings({ ws }: { ws: Workspace }) {
                       placeholder="Paste code / redirect URL"
                       className="h-9 flex-1 rounded-md border border-luna-stroke bg-luna-elevated/60 px-2 text-luna-primary focus:outline-none"
                     />
-                    <button onClick={submitCode} className="rounded-md bg-white px-3 text-sm font-medium text-black">
+                    <button onClick={() => void submitCode()} className="rounded-md bg-white px-3 text-sm font-medium text-black">
                       Submit
                     </button>
                   </div>
@@ -300,7 +313,7 @@ export function ProviderSettings({ ws }: { ws: Workspace }) {
             onClick={() => ws.resetWorkspace()}
             className="mt-6 text-[12.5px] text-luna-secondary underline hover:text-luna-primary"
           >
-            Reset workspace to sample teammates
+            Reset workspace to Default Agent
           </button>
         </div>
       </div>
@@ -326,7 +339,9 @@ function applyEvent(c: CodexState, evt: LoginEvent): CodexState {
       next.log = [...c.log, evt.message];
       break;
     case "prompt":
-      next.needsCode = true;
+      next.needsCode = evt.promptType !== "select";
+      next.promptType = evt.promptType;
+      next.promptOptions = evt.options;
       next.log = [...c.log, evt.message];
       break;
     case "done":

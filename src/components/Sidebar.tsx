@@ -1,9 +1,34 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { BotMark } from "./BotMark";
+import type { Bot } from "@/lib/types";
 import type { Workspace } from "@/lib/useWorkspace";
 
 export function Sidebar({ ws }: { ws: Workspace }) {
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ bot: Bot; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [contextMenu]);
+
+  const finishRename = () => {
+    if (!renaming) return;
+    ws.updateBotDetails(renaming.id, { name: renaming.value });
+    setRenaming(null);
+  };
+
   return (
     <div className="flex h-full w-[300px] shrink-0 flex-col bg-luna-window">
       <div className="flex h-11 items-center justify-end pr-2.5">
@@ -34,31 +59,70 @@ export function Sidebar({ ws }: { ws: Workspace }) {
           {ws.filteredBots.map((bot) => {
             const selected = bot.id === ws.selectedId;
             return (
-              <button
+              <div
                 key={bot.id}
                 onClick={() => ws.openTab(bot.id)}
-                className={`flex h-[57px] items-center gap-2.5 rounded-[11px] px-2.5 text-left transition-colors ${
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  ws.openTab(bot.id);
+                  setContextMenu({
+                    bot,
+                    x: Math.min(event.clientX, window.innerWidth - 205),
+                    y: Math.min(event.clientY, window.innerHeight - 180),
+                  });
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") ws.openTab(bot.id);
+                }}
+                className={`flex h-[57px] cursor-default items-center gap-2.5 rounded-[11px] px-2.5 text-left transition-colors ${
                   selected ? "bg-luna-selected" : "hover:bg-white/[0.03]"
                 }`}
               >
                 <BotMark color={bot.color} symbol={bot.symbol} size={37} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-[14.5px] font-medium text-luna-primary">
-                      {bot.name}
-                    </span>
+                    {renaming?.id === bot.id ? (
+                      <input
+                        autoFocus
+                        value={renaming.value}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => setRenaming({ id: bot.id, value: event.target.value })}
+                        onBlur={finishRename}
+                        onKeyDown={(event) => {
+                          event.stopPropagation();
+                          if (event.key === "Enter") finishRename();
+                          if (event.key === "Escape") setRenaming(null);
+                        }}
+                        className="min-w-0 flex-1 rounded bg-black/30 px-1 text-[14.5px] font-medium text-luna-primary outline-none ring-1 ring-white/20"
+                        aria-label={`Rename ${bot.name}`}
+                      />
+                    ) : (
+                      <span
+                        className="truncate text-[14.5px] font-medium text-luna-primary"
+                        onDoubleClick={(event) => {
+                          event.stopPropagation();
+                          setRenaming({ id: bot.id, value: bot.name });
+                        }}
+                        title="Double-click to rename"
+                      >
+                        {bot.name}
+                      </span>
+                    )}
                     {bot.members.length > 0 && (
                       <span className="rounded bg-white/[0.06] px-1 text-[10px] text-luna-secondary">
                         {bot.members.length}
                       </span>
                     )}
+                    {bot.pinned && <PinIcon />}
                     <span className="ml-auto shrink-0 text-[12.5px] text-luna-secondary">
                       {bot.timestamp}
                     </span>
                   </div>
                   <div className="truncate text-[13px] text-luna-secondary">{bot.preview}</div>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -77,7 +141,82 @@ export function Sidebar({ ws }: { ws: Workspace }) {
           <GearIcon />
         </span>
       </button>
+      {contextMenu && (
+        <BotContextMenu
+          bot={ws.bots.find((bot) => bot.id === contextMenu.bot.id) ?? contextMenu.bot}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onEdit={() => {
+            ws.openInspector(contextMenu.bot.id);
+            setContextMenu(null);
+          }}
+          onRename={() => {
+            setRenaming({ id: contextMenu.bot.id, value: contextMenu.bot.name });
+            setContextMenu(null);
+          }}
+          onTogglePin={() => {
+            ws.toggleBotPinned(contextMenu.bot.id);
+            setContextMenu(null);
+          }}
+          onDelete={() => {
+            const kind = contextMenu.bot.members.length > 0 ? "chat" : "agent";
+            if (window.confirm(`Delete ${kind} “${contextMenu.bot.name}”? This cannot be undone.`)) {
+              ws.deleteBot(contextMenu.bot.id);
+            }
+            setContextMenu(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function BotContextMenu({
+  bot,
+  x,
+  y,
+  onEdit,
+  onRename,
+  onTogglePin,
+  onDelete,
+}: {
+  bot: Bot;
+  x: number;
+  y: number;
+  onEdit: () => void;
+  onRename: () => void;
+  onTogglePin: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      className="fixed z-50 w-[190px] rounded-xl border border-luna-stroke bg-[#292929] p-1.5 text-sm shadow-2xl"
+      style={{ left: x, top: y }}
+      role="menu"
+      onClick={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <ContextAction label="Edit details…" onClick={onEdit} />
+      <ContextAction label="Rename" onClick={onRename} />
+      <ContextAction label={bot.pinned ? "Unpin from top" : "Pin to top"} onClick={onTogglePin} />
+      <div className="my-1 h-px bg-white/[0.07]" />
+      <ContextAction label="Delete" onClick={onDelete} danger />
+    </div>
+  );
+}
+
+function ContextAction({ label, onClick, danger = false }: { label: string; onClick: () => void; danger?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className={`flex h-8 w-full items-center rounded-lg px-2.5 text-left ${
+        danger ? "text-red-300 hover:bg-red-400/10" : "text-luna-primary hover:bg-white/[0.06]"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -85,6 +224,13 @@ function PlusIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+    </svg>
+  );
+}
+function PinIcon() {
+  return (
+    <svg className="shrink-0 text-luna-secondary" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="m14 4 6 6-3 1-4 4-1 5-2-2-4 4-2-2 4-4-2-2 5-1 4-4z" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

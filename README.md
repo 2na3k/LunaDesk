@@ -9,8 +9,10 @@ built on the **Pi coding-agent stack** (`@earendil-works/pi-ai` +
 
 ## Highlights
 
-- **Multi-agent chat** with a dark, native-feeling UI ported 1:1 from the SwiftUI design (sidebar of teammates, tabbed chats, chat pane, composer, agent picker).
-- **Bots as tabs** — every bot is its own chat tab; spawn new bots on the fly (`⌘N`).
+- **Auth-first desktop onboarding** with ChatGPT/Codex browser sign-in or an OpenAI API key.
+- **Multi-agent chat** with a dark, native-feeling UI, sidebar navigation, chat pane, composer, and compact agent-creation window.
+- **One clean starting agent** — a new workspace contains only Default Agent, which you can rename and customize with your own prompt after sign-in.
+- **Real spawn and delegate** — tell a solo agent to `spawn 3 agents to ...` (or use `/delegate`). A planner creates distinct named agents with separate roles, personas, and assignments, adds each one to the sidebar, then opens a shared group where they respond to one another in turn.
 - **Group chats** where bots actually converse with one another (multi-agent turn-taking), mirroring the original "Offsite crew".
 - **Pluggable agent runtime** — the real Pi-backed runtime (`PiAgentRuntime`) when a provider is configured, with a credential-free `LocalAgentRuntime` fallback so the whole product is demonstrable offline.
 - **LLM provider screen** with **Codex (ChatGPT) SSO sign-in** and API-key providers, using Pi's unified provider/auth layer.
@@ -39,13 +41,14 @@ src/
   app/
     page.tsx                # main client app (workspace)
     api/chat/route.ts       # SSE streaming of a single bot reply
+    api/delegate/route.ts   # plans distinct agents for a spawn/delegate request
     api/providers/route.ts  # provider status + API-key set/clear
     api/auth/codex/route.ts # Codex OAuth (SSO) login, streamed over SSE
   components/               # Sidebar, ChatPane, Composer, AgentPicker, ProviderSettings, BotMark, MessageRow
   lib/
     config.ts               # DEFAULT_MODEL ("Luna Max"), featured providers
     types.ts                # Bot, ChatMessage, AgentRuntime interface (the adapter seam)
-    useWorkspace.ts         # client store (bots, tabs, group orchestration)
+    useWorkspace.ts         # client store (bots, onboarding, group orchestration)
     agents/
       models.ts             # pi-ai Models collection + credential store
       pi-runtime.ts         # PiAgentRuntime — the real Pi integration
@@ -75,15 +78,17 @@ and are easy to change:
 
 - **`pi-coding-agents`** → resolved to the [Pi agent harness](https://github.com/earendil-works/pi) by earendil-works. We depend on `@earendil-works/pi-ai` (the unified multi-provider LLM API, used for chat) and `@earendil-works/pi-coding-agent` (the coding-agent SDK, wired as an available adapter). These are real, installed dependencies.
 - **"Default luna max high something something"** → the Codex catalog ships a model literally named **GPT-5.6 Luna** (`gpt-5.6-luna`). We default to that model at **`high`** reasoning, branded **"Luna Max · High"**. The single source of truth is `DEFAULT_MODEL` in `src/lib/config.ts`.
-- **"spawn bot as a new tab / group chat"** → each bot is a tab (top tab bar + sidebar); groups are first-class bots with `members[]`, and group members take turns replying and reference each other.
+- **Agent navigation** → agents live in the sidebar; the redundant top tab strip and its close controls are intentionally removed. Groups remain first-class bots with `members[]`.
 
 ## Codex (ChatGPT) SSO / auth
 
-Open **Providers** (gear in the sidebar) → **Sign in with ChatGPT**. This starts
+On first launch, choose **Continue with ChatGPT** or enter an **OpenAI API key**.
+The ChatGPT option starts
 Pi's OAuth login for the `openai-codex` provider and streams the auth URL / device
 code back to the UI. On success the OAuth token is persisted in the local
 credential store and auto-refreshed by Pi on every request. No API key is needed
-for the Codex subscription path.
+for the Codex subscription path. Provider settings remain available from the
+gear in the sidebar after onboarding.
 
 - **Credentials are never hardcoded.** API keys/tokens live only in the file-backed credential store (default `~/.lunadesk/credentials.json`, mode `0600`, gitignored) or in provider env vars (e.g. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`).
 - Codex SSO end-to-end requires a real **ChatGPT Plus/Pro subscription** to complete; it could not be fully exercised in CI (no subscription available). The flow, event streaming, and token persistence are implemented and wired.

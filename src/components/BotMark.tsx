@@ -2,7 +2,7 @@ import type { BotSymbol } from "@/lib/types";
 
 /**
  * The little "bot face" glyph, ported from the SwiftUI `BotMark`: a colored
- * shape (circle / capsule / triangle / diamond) with two angled "eyes".
+ * shape (circle / capsule / triangle / diamond / hexagon) with two angled "eyes".
  */
 export function BotMark({
   color,
@@ -15,6 +15,7 @@ export function BotMark({
 }) {
   const eyeW = size * 0.07;
   const eyeH = size * 0.18;
+  const eyeOffsetY = symbol === "triangle" ? size * 0.04 : 0;
   return (
     <span
       className="relative inline-block shrink-0"
@@ -28,7 +29,7 @@ export function BotMark({
           gap: size * 0.12,
           left: "50%",
           top: "50%",
-          transform: `translate(calc(-50% + ${size * 0.09}px), calc(-50% - ${size * 0.12}px))`,
+          transform: `translate(calc(-50% + ${size * 0.07}px), calc(-50% + ${eyeOffsetY}px))`,
         }}
       >
         <span
@@ -55,44 +56,17 @@ export function BotMark({
 }
 
 function Shape({ symbol, color, size }: { symbol: BotSymbol; color: string; size: number }) {
-  const common = { width: size, height: size } as const;
-  if (symbol === "circle") {
-    return <span style={{ ...common, background: color, borderRadius: 9999, display: "block" }} />;
-  }
-  if (symbol === "capsule") {
-    return (
-      <span
-        style={{
-          ...common,
-          background: color,
-          display: "block",
-          borderRadius: `${size * 0.5}px ${size * 0.35}px ${size * 0.48}px ${size * 0.5}px`,
-        }}
-      />
-    );
-  }
-  if (symbol === "diamond") {
-    return (
-      <span
-        style={{
-          width: size * 0.84,
-          height: size * 0.84,
-          background: color,
-          display: "block",
-          margin: size * 0.08,
-          borderRadius: size * 0.27,
-          transform: "rotate(45deg)",
-        }}
-      />
-    );
-  }
-  // triangle (rounded), rendered via SVG for the soft curves
+  const paths: Record<BotSymbol, string> = {
+    circle: "M50 7 C75 7 93 25 93 50 C93 75 75 93 50 93 C25 93 7 75 7 50 C7 25 25 7 50 7 Z",
+    capsule: "M31 13 H69 C84 13 93 26 93 41 V59 C93 74 84 87 69 87 H31 C16 87 7 74 7 59 V41 C7 26 16 13 31 13 Z",
+    triangle: "M50 8 C56 8 60 12 64 19 L92 73 C99 87 90 94 76 94 H24 C10 94 1 87 8 73 L36 19 C40 12 44 8 50 8 Z",
+    diamond: "M50 6 C55 6 59 8 63 12 L88 37 C96 45 96 55 88 63 L63 88 C55 96 45 96 37 88 L12 63 C4 55 4 45 12 37 L37 12 C41 8 45 6 50 6 Z",
+    hexagon: "M39 7 C46 3 54 3 61 7 L88 23 C94 27 97 33 97 41 V66 C97 74 94 80 88 84 L61 97 C54 100 46 100 39 97 L12 84 C6 80 3 74 3 66 V41 C3 33 6 27 12 23 Z",
+  };
+
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" style={{ display: "block" }}>
-      <path
-        d="M50 6 Q70 8 92 82 Q52 100 8 82 Q30 8 50 6 Z"
-        fill={color}
-      />
+      <path d={paths[symbol]} fill={color} />
     </svg>
   );
 }

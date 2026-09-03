@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { activeMentionQuery, insertMention } from "@/lib/mentions";
 import type { Workspace } from "@/lib/useWorkspace";
 
 export function Composer({ ws }: { ws: Workspace }) {
   const [draft, setDraft] = useState("");
   const [recording, setRecording] = useState(false);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const ref = useRef<HTMLTextAreaElement>(null);
   const busy = ws.selected ? Boolean(ws.busyBots[ws.selected.id]) : false;
 
@@ -21,9 +23,41 @@ export function Composer({ ws }: { ws: Workspace }) {
   };
 
   const name = ws.selected?.name ?? "teammate";
+  const mentionQuery = activeMentionQuery(draft);
+  const mentionCandidates = mentionQuery === null
+    ? []
+    : ws.bots
+        .filter((bot) => bot.members.length === 0 && bot.id !== ws.selectedId)
+        .filter((bot) => bot.name.toLowerCase().includes(mentionQuery.trim().toLowerCase()))
+        .slice(0, 6);
+
+  useEffect(() => setMentionIndex(0), [mentionQuery]);
+
+  const chooseMention = (agentName: string) => {
+    setDraft((current) => insertMention(current, agentName));
+    ref.current?.focus();
+  };
 
   return (
-    <div className="px-6 pb-5 pt-2">
+    <div className="relative px-6 pb-5 pt-2">
+      {mentionCandidates.length > 0 && (
+        <div className="absolute bottom-[72px] left-10 z-20 min-w-56 overflow-hidden rounded-xl border border-luna-stroke bg-[#292929] p-1 shadow-2xl">
+          {mentionCandidates.map((agent, index) => (
+            <button
+              key={agent.id}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => chooseMention(agent.name)}
+              className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm ${
+                index === mentionIndex ? "bg-white/10 text-luna-primary" : "text-luna-secondary hover:bg-white/5"
+              }`}
+            >
+              <span>@{agent.name}</span>
+              <span className="ml-5 text-xs opacity-60">{agent.role}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex min-h-[48px] items-center gap-2.5 rounded-[24px] border border-luna-stroke bg-black/[0.15] px-2.5">
         <button
           onClick={() => ws.setPickerOpen(true)}
@@ -40,6 +74,20 @@ export function Composer({ ws }: { ws: Workspace }) {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
+            if (mentionCandidates.length > 0 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+              e.preventDefault();
+              setMentionIndex((current) =>
+                e.key === "ArrowDown"
+                  ? (current + 1) % mentionCandidates.length
+                  : (current - 1 + mentionCandidates.length) % mentionCandidates.length,
+              );
+              return;
+            }
+            if (mentionCandidates.length > 0 && (e.key === "Enter" || e.key === "Tab")) {
+              e.preventDefault();
+              chooseMention(mentionCandidates[mentionIndex].name);
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               send();

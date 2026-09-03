@@ -6,18 +6,29 @@ import type { Workspace } from "@/lib/useWorkspace";
 
 export function AgentPicker({ ws }: { ws: Workspace }) {
   const [query, setQuery] = useState("");
-  const [mode, setMode] = useState<"pick" | "group">("pick");
+  const [mode, setMode] = useState<"pick" | "create" | "group">("pick");
   const [groupName, setGroupName] = useState("");
   const [members, setMembers] = useState<string[]>([]);
+  const [agentName, setAgentName] = useState("");
+  const [agentRole, setAgentRole] = useState("");
+  const [agentPersona, setAgentPersona] = useState("");
 
   useEffect(() => {
-    if (!ws.pickerOpen) {
+    if (ws.pickerOpen && ws.needsDefaultAgentSetup) {
+      setMode("create");
+      setAgentName("Default Agent");
+      setAgentRole("Your general-purpose AI teammate.");
+      setAgentPersona("");
+    } else if (!ws.pickerOpen) {
       setQuery("");
       setMode("pick");
       setGroupName("");
       setMembers([]);
+      setAgentName("");
+      setAgentRole("");
+      setAgentPersona("");
     }
-  }, [ws.pickerOpen]);
+  }, [ws.pickerOpen, ws.needsDefaultAgentSetup]);
 
   if (!ws.pickerOpen) return null;
 
@@ -48,7 +59,7 @@ export function AgentPicker({ ws }: { ws: Workspace }) {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     if (results[0]) ws.openTab(results[0].id);
-                    else ws.createAgent({ name: query || undefined });
+                    else setMode("create");
                   } else if (e.key === "Escape") close();
                 }}
                 placeholder="Search or create agents"
@@ -57,7 +68,7 @@ export function AgentPicker({ ws }: { ws: Workspace }) {
             </div>
 
             <div className="rounded-b-[14px] border border-t-0 border-luna-stroke bg-luna-content p-2 shadow-2xl">
-              <Row onClick={() => ws.createAgent({ name: query || undefined })}>
+              <Row onClick={() => { setAgentName(query); setMode("create"); }}>
                 <IconCircle>+</IconCircle>
                 <span className="text-luna-primary">
                   Create new agent{query ? ` “${query}”` : ""}
@@ -79,6 +90,50 @@ export function AgentPicker({ ws }: { ws: Workspace }) {
               ))}
             </div>
           </>
+        ) : mode === "create" ? (
+          <form
+            className="rounded-[14px] border border-luna-stroke bg-luna-content p-4 shadow-2xl"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!agentName.trim()) return;
+              if (ws.needsDefaultAgentSetup) {
+                ws.configureDefaultAgent({ name: agentName, role: agentRole, persona: agentPersona });
+              } else {
+                ws.createAgent({ name: agentName, role: agentRole, persona: agentPersona });
+              }
+            }}
+          >
+            <div className="mb-1 text-sm font-medium text-luna-primary">
+              {ws.needsDefaultAgentSetup ? "Set up your default agent" : "Create agent"}
+            </div>
+            <div className="mb-3 text-[12.5px] text-luna-secondary">
+              {ws.needsDefaultAgentSetup
+                ? "Choose its name, role, and working prompt. You can change this later."
+                : "Give your teammate a name and a clear job to do."}
+            </div>
+            <label className="mb-2 block text-[12px] text-luna-secondary">
+              Name
+              <input autoFocus value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="e.g. Researcher" className="mt-1 h-10 w-full rounded-lg border border-luna-stroke bg-luna-elevated/60 px-3 text-sm text-luna-primary placeholder:text-luna-secondary focus:outline-none" />
+            </label>
+            <label className="mb-2 block text-[12px] text-luna-secondary">
+              Label
+              <input value={agentRole} onChange={(e) => setAgentRole(e.target.value)} placeholder="Short role label" className="mt-1 h-10 w-full rounded-lg border border-luna-stroke bg-luna-elevated/60 px-3 text-sm text-luna-primary placeholder:text-luna-secondary focus:outline-none" />
+            </label>
+            <label className="block text-[12px] text-luna-secondary">
+              Description / system prompt
+              <textarea value={agentPersona} onChange={(e) => setAgentPersona(e.target.value)} placeholder="Describe how this agent should think, speak, and work…" rows={4} className="mt-1 w-full resize-none rounded-lg border border-luna-stroke bg-luna-elevated/60 px-3 py-2 text-sm text-luna-primary placeholder:text-luna-secondary focus:outline-none" />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              {ws.needsDefaultAgentSetup ? (
+                <button type="button" onClick={() => ws.configureDefaultAgent()} className="rounded-lg px-3 py-1.5 text-sm text-luna-secondary hover:text-luna-primary">Use default</button>
+              ) : (
+                <button type="button" onClick={() => setMode("pick")} className="rounded-lg px-3 py-1.5 text-sm text-luna-secondary hover:text-luna-primary">Back</button>
+              )}
+              <button type="submit" disabled={!agentName.trim()} className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black disabled:opacity-40">
+                {ws.needsDefaultAgentSetup ? "Start with this agent" : "Create agent"}
+              </button>
+            </div>
+          </form>
         ) : (
           <div className="rounded-[14px] border border-luna-stroke bg-luna-content p-4 shadow-2xl">
             <div className="mb-3 text-sm font-medium text-luna-primary">New group chat</div>

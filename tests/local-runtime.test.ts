@@ -3,17 +3,20 @@ import { LocalAgentRuntime } from "@/lib/agents/local-runtime";
 import { DEFAULT_MODEL } from "@/lib/config";
 import type { RespondInput } from "@/lib/types";
 
-async function collect(gen: AsyncGenerator<{ type: string; delta?: string }>): Promise<{
+async function collect(gen: AsyncGenerator<{ type: string; delta?: string; toolName?: string; arguments?: Record<string, unknown> }>): Promise<{
   text: string;
   done: boolean;
+  tools: Array<{ name: string; arguments: Record<string, unknown> }>;
 }> {
   let text = "";
   let done = false;
+  const tools: Array<{ name: string; arguments: Record<string, unknown> }> = [];
   for await (const chunk of gen) {
     if (chunk.type === "delta") text += chunk.delta ?? "";
+    if (chunk.type === "tool_call") tools.push({ name: chunk.toolName ?? "", arguments: chunk.arguments ?? {} });
     if (chunk.type === "done") done = true;
   }
-  return { text, done };
+  return { text, done, tools };
 }
 
 const base: RespondInput = {
@@ -31,6 +34,8 @@ describe("LocalAgentRuntime", () => {
   it("streams a non-empty reply and terminates with done", async () => {
     const { text, done } = await collect(new LocalAgentRuntime().respond(base));
     expect(text.length).toBeGreaterThan(0);
+    expect(text).toContain("Offline demo");
+    expect(text).not.toContain("on it");
     expect(done).toBe(true);
   });
 
@@ -53,5 +58,24 @@ describe("LocalAgentRuntime", () => {
       new LocalAgentRuntime().respond({ ...base, history: [] }),
     );
     expect(text.toLowerCase()).toContain("sales outbound".toLowerCase());
+  });
+
+  it("emits real delegate_to_agent calls instead of impersonating named agents", async () => {
+    const { text, tools, done } = await collect(
+      new LocalAgentRuntime().respond({
+        ...base,
+        history: [{ role: "user", name: "You", content: "Ask Scout 1 and Builder 3 to say hello" }],
+        availableAgents: [
+          { name: "Scout 1", role: "Research" },
+          { name: "Builder 3", role: "Implementation" },
+        ],
+      }),
+    );
+    expect(text).toBe("");
+    expect(tools.map((tool) => [tool.name, tool.arguments.agent])).toEqual([
+      ["delegate_to_agent", "Scout 1"],
+      ["delegate_to_agent", "Builder 3"],
+    ]);
+    expect(done).toBe(true);
   });
 });

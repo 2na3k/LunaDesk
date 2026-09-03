@@ -58,6 +58,11 @@ async function startNextServer() {
       HOSTNAME: "127.0.0.1",
       NODE_ENV: "production",
       NEXT_PUBLIC_DESKTOP: "1",
+      LUNA_WORKSPACE_STORE: path.join(app.getPath("userData"), "workspace.json"),
+      // A packaged Electron executable only behaves as Node when this flag is
+      // present. Without it, spawning process.execPath recursively launches
+      // more LunaDesk windows instead of running Next's server.js.
+      ELECTRON_RUN_AS_NODE: "1",
     },
     stdio: "inherit",
   });

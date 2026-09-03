@@ -36,7 +36,16 @@ async function main() {
     recursive: true,
   });
 
-  // 3. Optional public/ dir.
+  // Pi deliberately loads provider OAuth implementations through variable
+  // dynamic imports. Next's file tracer cannot see those modules, so replace
+  // its partial copy with the complete package for packaged sign-in flows.
+  const piAiSource = path.join(root, "node_modules", "@earendil-works", "pi-ai");
+  const piAiTarget = path.join(out, "node_modules", "@earendil-works", "pi-ai");
+  await rm(piAiTarget, { recursive: true, force: true });
+  await mkdir(path.dirname(piAiTarget), { recursive: true });
+  await cp(piAiSource, piAiTarget, { recursive: true });
+
+  // 4. Optional public/ dir.
   if (await exists(path.join(root, "public"))) {
     await cp(path.join(root, "public"), path.join(out, "public"), { recursive: true });
   }

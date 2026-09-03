@@ -17,7 +17,13 @@ export type LoginEvent =
   | { type: "auth_url"; url: string; instructions?: string }
   | { type: "device_code"; userCode: string; verificationUri: string }
   | { type: "progress"; message: string }
-  | { type: "prompt"; promptType: AuthPrompt["type"]; message: string }
+  | {
+      type: "prompt";
+      promptType: AuthPrompt["type"];
+      message: string;
+      placeholder?: string;
+      options?: readonly { id: string; label: string; description?: string }[];
+    }
   | { type: "done" }
   | { type: "error"; error: string };
 
@@ -53,7 +59,13 @@ export async function startCodexLogin(session: string, emit: (event: LoginEvent)
       }
     },
     prompt(prompt: AuthPrompt): Promise<string> {
-      emit({ type: "prompt", promptType: prompt.type, message: prompt.message });
+      emit({
+        type: "prompt",
+        promptType: prompt.type,
+        message: prompt.message,
+        placeholder: "placeholder" in prompt ? prompt.placeholder : undefined,
+        options: prompt.type === "select" ? prompt.options : undefined,
+      });
       return new Promise<string>((resolve, reject) => {
         entry.resolveCode = resolve;
         entry.rejectCode = reject;

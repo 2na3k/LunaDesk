@@ -6,6 +6,13 @@ export interface StreamCallbacks {
   onDelta: (delta: string) => void;
   onDone?: () => void;
   onError?: (error: string) => void;
+  onToolCall?: (call: AgentToolCall) => void;
+}
+
+export interface AgentToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
 }
 
 /** Convert a bot's message list into attributed agent turns for the backend. */
@@ -25,6 +32,7 @@ export interface ChatRequest {
   history: AgentTurn[];
   model: ModelSelection;
   peers?: string[];
+  availableAgents?: Array<{ name: string; role: string }>;
 }
 
 /** Stream a single assistant reply from POST /api/chat (SSE over fetch). */
@@ -69,6 +77,15 @@ export async function streamChat(
         cb.onDelta(String(evt.delta ?? ""));
       } else if (evt.type === "done") {
         cb.onDone?.();
+      } else if (evt.type === "tool_call") {
+        cb.onToolCall?.({
+          id: String(evt.toolCallId ?? ""),
+          name: String(evt.toolName ?? ""),
+          arguments:
+            evt.arguments && typeof evt.arguments === "object"
+              ? (evt.arguments as Record<string, unknown>)
+              : {},
+        });
       } else if (evt.type === "error") {
         cb.onError?.(String(evt.error ?? "error"));
       }

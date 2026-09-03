@@ -1,6 +1,6 @@
 import type { ModelSelection } from "./config";
 
-export type BotSymbol = "circle" | "capsule" | "triangle" | "diamond";
+export type BotSymbol = "circle" | "capsule" | "triangle" | "diamond" | "hexagon";
 
 export type MessageSender =
   | { kind: "user" }
@@ -34,6 +34,8 @@ export interface Bot {
   /** Accent color (hex). */
   color: string;
   symbol: BotSymbol;
+  /** Pinned chats stay at the top of the sidebar. */
+  pinned?: boolean;
   messages: ChatMessage[];
   /** Non-empty => this tab is a group chat of the referenced bot names. */
   members: string[];
@@ -60,13 +62,18 @@ export interface RespondInput {
   model: ModelSelection;
   /** In a group chat, the names of the other participants. */
   peers?: string[];
+  /** Other agents this bot may invoke through the delegate_to_agent tool. */
+  availableAgents?: Array<{ name: string; role: string }>;
 }
 
 export interface RespondChunk {
-  type: "delta" | "done" | "error";
+  type: "delta" | "tool_call" | "done" | "error";
   delta?: string;
   message?: string;
   error?: string;
+  toolCallId?: string;
+  toolName?: string;
+  arguments?: Record<string, unknown>;
 }
 
 /**

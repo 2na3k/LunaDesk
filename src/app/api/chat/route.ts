@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
     history: Array.isArray(body.history) ? body.history : [],
     model: body.model ?? DEFAULT_MODEL,
     peers: body.peers,
+    availableAgents: body.availableAgents,
   };
 
   const { runtime: agent, live } = await selectRuntime(input.model);

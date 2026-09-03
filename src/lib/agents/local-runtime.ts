@@ -3,8 +3,8 @@ import type { AgentRuntime, AgentTurn, RespondChunk, RespondInput } from "../typ
 
 /**
  * A dependency-free fallback runtime. It produces persona-flavored, context-aware
- * replies with no network or credentials, so the entire LunaDesk experience —
- * including multi-agent group conversations — is demonstrable offline.
+ * replies with no network or credentials. It is deliberately explicit that it
+ * is a UI demo and cannot perform the delegated work.
  *
  * This is intentionally NOT the product's brain; it is the graceful-degradation
  * path when no provider credential is configured. The real intelligence comes
@@ -18,6 +18,22 @@ export class LocalAgentRuntime implements AgentRuntime {
   }
 
   async *respond(input: RespondInput, signal?: AbortSignal): AsyncGenerator<RespondChunk> {
+    const lastUser = lastFrom(input.history, (turn) => turn.role === "user");
+    const requestedAgents = input.availableAgents?.filter((agent) =>
+      lastUser ? normalized(lastUser.content).includes(normalized(agent.name)) : false,
+    );
+    if (lastUser && requestedAgents?.length) {
+      for (const agent of requestedAgents) {
+        yield {
+          type: "tool_call",
+          toolCallId: `local-${normalized(agent.name).replace(/\s+/g, "-")}`,
+          toolName: "delegate_to_agent",
+          arguments: { agent: agent.name, task: lastUser.content },
+        };
+      }
+      yield { type: "done" };
+      return;
+    }
     const text = compose(input);
     // Stream word-by-word to mimic a real token stream in the UI.
     const words = text.split(/(\s+)/);
@@ -31,6 +47,10 @@ export class LocalAgentRuntime implements AgentRuntime {
     }
     yield { type: "done" };
   }
+}
+
+function normalized(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase();
 }
 
 function lastFrom(history: AgentTurn[], predicate: (t: AgentTurn) => boolean): AgentTurn | undefined {
@@ -58,50 +78,15 @@ function compose(input: RespondInput): string {
   if (isGroup) {
     if (lastPeer) {
       const ref = lastPeer.name;
-      const gist = summarize(lastPeer.content, 6);
-      const groupLines = [
-        `good call ${ref}. i'll take the "${gist}" piece and report back.`,
-        `+1 to ${ref}. on my end i'll cover ${roleFocus(input)} so nothing slips.`,
-        `agreed. ${ref} owns that — i'll unblock ${roleFocus(input)} in parallel.`,
-        `noted from ${ref}. queuing ${roleFocus(input)} now, will flag if it stalls.`,
-      ];
-      return pick(groupLines, seed(input));
+      return `Offline demo: I can see ${ref}'s turn, but I cannot execute or reason about the assignment without a live provider. Reconnect Codex or add an API key.`;
     }
-    return `on it — i'll drive ${roleFocus(input)} for "${topic}" and loop the crew in.`;
+    return `Offline demo: ${input.botName} was created for "${topic}", but cannot perform the assignment without a live provider. Reconnect Codex or add an API key.`;
   }
 
-  const oneToOne = [
-    `on it. i'll handle ${roleFocus(input)} for "${topic}" and keep it tight.`,
-    `got it — starting on "${topic}" now. i'll surface anything that needs your call.`,
-    `yep. i'll take "${topic}" end to end and report back with next steps.`,
-    `understood. queuing "${topic}" — ${roleFocus(input)} first, then a quick recap for you.`,
-  ];
   if (!lastUser) {
-    return `hey — i'm ${input.botName}. ready when you are. what should i pick up first?`;
+    return `Offline demo: I'm ${input.botName}. Connect Codex or add an API key before assigning real work.`;
   }
-  return pick(oneToOne, seed(input));
-}
-
-function roleFocus(input: RespondInput): string {
-  const role = (input.persona || "").toLowerCase();
-  if (role.includes("sales") || role.includes("outbound")) return "the outbound sequence";
-  if (role.includes("inbox") || role.includes("email")) return "inbox triage";
-  if (role.includes("account")) return "the account follow-ups";
-  if (role.includes("talent") || role.includes("recruit")) return "the candidate intros";
-  if (role.includes("expense") || role.includes("finance")) return "the expense reconciliation";
-  if (role.includes("chief") || role.includes("lead")) return "coordination";
-  return "the details";
-}
-
-function seed(input: RespondInput): number {
-  const key = `${input.botName}:${input.history.length}`;
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  return h;
-}
-
-function pick<T>(arr: T[], n: number): T {
-  return arr[n % arr.length];
+  return `Offline demo: I received "${topic}", but I cannot do the work or report progress without a live provider. Reconnect Codex or add an API key.`;
 }
 
 function delay(ms: number): Promise<void> {
