@@ -1,4 +1,10 @@
 {
-  "name": "LunaDesk",
-  "install": "./.cursor/install.sh"
+  "name": "LunaDesk (Next.js + Electron)",
+  "install": "./.cursor/install.sh",
+  "terminals": [
+    {
+      "name": "next-dev",
+      "command": "npm run dev"
+    }
+  ]
 }
