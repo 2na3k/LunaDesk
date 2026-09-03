@@ -34,6 +34,7 @@
     "autoprefixer": "10.4.20",
     "electron": "33.2.1",
     "electron-builder": "25.1.8",
+    "playwright": "^1.49.1",
     "postcss": "8.5.6",
     "tailwindcss": "3.4.17",
     "typescript": "5.9.3",
@@ -60,7 +61,10 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64", "x64"]
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
       "artifactName": "LunaDesk-${version}-${arch}.${ext}"
@@ -69,7 +73,9 @@
       "title": "LunaDesk ${version}"
     },
     "linux": {
-      "target": ["dir"],
+      "target": [
+        "dir"
+      ],
       "category": "Utility"
     }
   }

@@ -10,6 +10,7 @@
 # production / packaging
 /build
 /dist
+/dist-electron
 /release
 
 # electron
