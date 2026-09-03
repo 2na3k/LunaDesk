@@ -1,0 +1,76 @@
+{
+  "name": "lunadesk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LunaDesk — a multi-agent chat desktop app (Next.js + Electron) powered by the Pi coding-agent stack.",
+  "author": "LunaDesk",
+  "license": "MIT",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "electron:dev": "NEXT_PUBLIC_DESKTOP=1 electron electron/main.js",
+    "prepare:standalone": "node scripts/prepare-standalone.mjs",
+    "pack:prepare": "npm run build && npm run prepare:standalone",
+    "dist": "npm run pack:prepare && electron-builder",
+    "dist:mac": "npm run pack:prepare && electron-builder --mac dmg",
+    "dist:linux": "npm run pack:prepare && electron-builder --linux dir"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.84.4",
+    "@earendil-works/pi-coding-agent": "^0.84.4",
+    "next": "^15.5.25",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.7",
+    "autoprefixer": "10.4.20",
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8",
+    "postcss": "8.5.6",
+    "tailwindcss": "3.4.17",
+    "typescript": "5.9.3",
+    "vitest": "^2.1.9"
+  },
+  "build": {
+    "appId": "com.lunadesk.app",
+    "productName": "LunaDesk",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "!**/node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "dist-electron/app",
+        "to": "app"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        }
+      ],
+      "artifactName": "LunaDesk-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "LunaDesk ${version}"
+    },
+    "linux": {
+      "target": ["dir"],
+      "category": "Utility"
+    }
+  }
+}

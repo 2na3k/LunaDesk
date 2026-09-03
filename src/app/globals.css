@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#__next {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: #151515;
+  color: #e0e0e0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+/* Thin, subtle scrollbars matching the dark shell. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes luna-blink {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+.luna-typing span {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 1px;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: luna-blink 1.2s infinite;
+}
+.luna-typing span:nth-child(2) { animation-delay: 0.2s; }
+.luna-typing span:nth-child(3) { animation-delay: 0.4s; }
