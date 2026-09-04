@@ -1,3 +1,4 @@
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import type { ModelSelection } from "./config";
 
 export type BotSymbol = "circle" | "capsule" | "triangle" | "diamond" | "hexagon";
@@ -63,11 +64,14 @@ export interface RespondInput {
   /** In a group chat, the names of the other participants. */
   peers?: string[];
   /** Other agents this bot may invoke through the delegate_to_agent tool. */
+  orchestration?: boolean;
+  continuation?: Message[];
   availableAgents?: Array<{ name: string; role: string }>;
 }
 
 export interface RespondChunk {
-  type: "delta" | "tool_call" | "done" | "error";
+  type: "delta" | "tool_call" | "assistant_message" | "done" | "error";
+  assistantMessage?: AssistantMessage;
   delta?: string;
   message?: string;
   error?: string;

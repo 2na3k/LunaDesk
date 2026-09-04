@@ -12,7 +12,7 @@ built on the **Pi coding-agent stack** (`@earendil-works/pi-ai` +
 - **Auth-first desktop onboarding** with ChatGPT/Codex browser sign-in or an OpenAI API key.
 - **Multi-agent chat** with a dark, native-feeling UI, sidebar navigation, chat pane, composer, and compact agent-creation window.
 - **One clean starting agent** — a new workspace contains only Default Agent, which you can rename and customize with your own prompt after sign-in.
-- **Real spawn and delegate** — tell a solo agent to `spawn 3 agents to ...` (or use `/delegate`). A planner creates distinct named agents with separate roles, personas, and assignments, adds each one to the sidebar, then opens a shared group where they respond to one another in turn.
+- **Executable delegation tools** — `create_agent`, `spawn_agents`, `send_message`, and `delegate_to_agent` are available even in a one-agent workspace. The runtime loads `skills/lunadesk-delegation/SKILL.md`. A spawned team runs concurrently in independent saved chats; native tool results return to the coordinator for synthesis in the original chat. Follow-up calls can address newly created agents. Failed workers are reported as failures. Natural-language requests work without a spawn keyword gate.
 - **Group chats** where bots actually converse with one another (multi-agent turn-taking), mirroring the original "Offsite crew".
 - **Pluggable agent runtime** — the real Pi-backed runtime (`PiAgentRuntime`) when a provider is configured, with a credential-free `LocalAgentRuntime` fallback so the whole product is demonstrable offline.
 - **LLM provider screen** with **Codex (ChatGPT) SSO sign-in** and API-key providers, using Pi's unified provider/auth layer.
@@ -41,7 +41,7 @@ src/
   app/
     page.tsx                # main client app (workspace)
     api/chat/route.ts       # SSE streaming of a single bot reply
-    api/delegate/route.ts   # plans distinct agents for a spawn/delegate request
+    api/delegate/route.ts   # legacy delegation-plan endpoint
     api/providers/route.ts  # provider status + API-key set/clear
     api/auth/codex/route.ts # Codex OAuth (SSO) login, streamed over SSE
   components/               # Sidebar, ChatPane, Composer, AgentPicker, ProviderSettings, BotMark, MessageRow
@@ -120,3 +120,7 @@ macOS runner.
 mapping, and the credential store. The Next.js API routes were verified
 end-to-end (single chat, group turn-taking, provider set/clear, and a real —
 correctly failing — live Pi request).
+
+### Delegation verification
+
+`npm test` covers tool execution, native continuation, worker concurrency, invalid calls, and partial failures. With the app server running, `BASE_URL=http://127.0.0.1:3000 BROWSER_CHANNEL=chrome node scripts/delegation-smoke.cjs` checks the actual browser flow using mocked model SSE and an isolated workspace: three worker chats, attributed messages, coordinator synthesis, and reload persistence. Omit `BROWSER_CHANNEL` to use an installed Playwright Chromium.

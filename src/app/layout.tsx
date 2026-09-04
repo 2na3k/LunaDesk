@@ -3,6 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "LunaDesk",
+  icons: { icon: "/lunadesk.svg", apple: "/lunadesk.svg" },
   description: "A multi-agent chat desktop app powered by the Pi coding-agent stack.",
 };
 

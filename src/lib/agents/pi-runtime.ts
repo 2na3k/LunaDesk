@@ -1,4 +1,7 @@
-import { Type, type Context } from "@earendil-works/pi-ai";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { workspaceTools } from "../workspace-tools";
+import { type Context } from "@earendil-works/pi-ai";
 import type { ModelSelection } from "../config";
 import type { AgentRuntime, RespondChunk, RespondInput } from "../types";
 import { models } from "./models";
@@ -36,7 +39,7 @@ export class PiAgentRuntime implements AgentRuntime {
 
     const context: Context = {
       systemPrompt: buildSystemPrompt(input),
-      messages: toMessages(input),
+      messages: [...toMessages(input), ...(input.continuation ?? [])],
       tools: buildTools(input),
     };
 
@@ -76,6 +79,7 @@ export class PiAgentRuntime implements AgentRuntime {
         .join("");
       if (text) yield { type: "delta", delta: text };
     }
+    yield { type: "assistant_message", assistantMessage: final };
     yield { type: "done" };
   }
 }
@@ -102,31 +106,15 @@ function buildSystemPrompt(input: RespondInput): string {
       "Keep replies concise, warm, and action-oriented — like a capable colleague in a chat app.",
     );
   }
-  if (input.availableAgents && input.availableAgents.length > 0) {
-    lines.push(
-      "",
-      `You can delegate work to these real agents: ${input.availableAgents.map((agent) => `${agent.name} (${agent.role})`).join(", ")}.`,
-      "When the user asks, implies, or would clearly benefit from one of these agents doing work, you MUST call delegate_to_agent once for each needed agent.",
-      "Never impersonate another agent, fabricate what they said, or claim you contacted them without calling the tool.",
-      "After tool results are returned, use their actual output to answer the user.",
-    );
+  if (input.orchestration || input.availableAgents?.length) {
+    lines.push(readFileSync(join(process.cwd(), "skills/lunadesk-delegation/SKILL.md"), "utf8"));
+    lines.push(`Existing agents: ${JSON.stringify(input.availableAgents ?? [])}`);
   }
   return lines.join("\n");
 }
 
 function buildTools(input: RespondInput): Context["tools"] {
-  if (!input.availableAgents?.length) return undefined;
-  return [
-    {
-      name: "delegate_to_agent",
-      description:
-        "Send a concrete task to one existing LunaDesk agent in that agent's own thread and wait for its actual answer. Call once per agent when multiple agents are needed.",
-      parameters: Type.Object({
-        agent: Type.Union(input.availableAgents.map((agent) => Type.Literal(agent.name))),
-        task: Type.String({ minLength: 1, description: "The concrete request the target agent should answer." }),
-      }),
-    },
-  ];
+  return input.orchestration || input.availableAgents?.length ? workspaceTools : undefined;
 }
 
 /**

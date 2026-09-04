@@ -8,6 +8,11 @@ import {
 } from "@/lib/delegation";
 
 describe("delegation routing", () => {
+  it("recognizes the Vietnamese helper request from the reported failure", () => {
+    const request = "gọi tao 3 thằng đệ, mỗi thằng nhẹ nhàng làm 1 cái proposal chiều nay tao nên đi chơi ở đâu quanh sing, xong mày ensemble lại";
+    expect(isDelegationRequest(request)).toBe(true);
+    expect(fallbackDelegationPlan(request).agents).toHaveLength(3);
+  });
   it("recognizes explicit English delegation commands", () => {
     expect(isDelegationRequest("/delegate spawn 3 agents to review this design")).toBe(true);
     expect(isDelegationRequest("Spawn 2 agents and have them debate the plan")).toBe(true);

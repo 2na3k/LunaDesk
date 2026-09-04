@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 100 100">
+  <title>LunaDesk</title>
+  <path d="M50 7 C75 7 93 25 93 50 C93 75 75 93 50 93 C25 93 7 75 7 50 C7 25 25 7 50 7 Z" fill="#8faff7"/>
+  <g fill="#000" fill-opacity=".82">
+    <rect x="44" y="41" width="7" height="18" rx="3.5" transform="rotate(-25 47.5 50)"/>
+    <rect x="63" y="41" width="7" height="18" rx="3.5" transform="rotate(-25 66.5 50)"/>
+  </g>
+</svg>

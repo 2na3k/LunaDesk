@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_MODEL, type ModelSelection } from "./config";
 import { newId, sampleBots } from "./sample-data";
-import { streamChat, toTurns, type AgentToolCall } from "./client";
-import { isDelegationRequest, parseDelegateToolCall, requestDelegationPlan, routeMentionDelegation } from "./delegation";
+import { streamChat, toTurns } from "./client";
+import { routeMentionDelegation } from "./delegation";
+import { runWorkspaceTurn, type ModelStep } from "./orchestration";
 import { findMentionedAgents } from "./mentions";
 import { updateBotMetadata, type BotMetadataUpdate } from "./bot-metadata";
 import type { Bot, ChatMessage } from "./types";
@@ -39,6 +40,7 @@ function migrateBots(bots: Bot[] | undefined): Bot[] {
 }
 
 export function useWorkspace() {
+  const persistence = useRef(Promise.resolve());
   const [bots, setBots] = useState<Bot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<string[]>([]);
@@ -105,11 +107,11 @@ export function useWorkspace() {
     try {
       const workspace = { bots, model, agentSetupComplete } satisfies Persisted;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
-      void fetch("/api/workspace", {
+      persistence.current = persistence.current.then(() => fetch("/api/workspace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(workspace),
-      }).catch(() => {
+      })).then(() => undefined).catch(() => {
         // localStorage already holds the same state for this server origin.
       });
     } catch {
@@ -253,212 +255,93 @@ export function useWorkspace() {
     [appendMessage, setMessagePartial, patchBot, model],
   );
 
-  /** Run an agent turn for orchestration without placing the intermediate text in a chat. */
-  const generateHiddenReply = useCallback(
-    async (speaker: { name: string; persona: string }, history: ReturnType<typeof toTurns>) => {
-      let acc = "";
-      await streamChat(
-        { persona: speaker.persona, botName: speaker.name, history, model },
-        {
-          onMeta: (meta) => setLive(meta.live),
-          onDelta: (delta) => {
-            acc += delta;
-          },
-          onError: () => {
-            // The caller falls back to the original instruction when no request is produced.
-          },
-        },
-      );
-      return acc;
-    },
-    [model],
-  );
-
-  /** Let the model decide whether to answer directly or invoke real teammate tools. */
+  /** Execute workspace tools and continue the coordinator with native tool results. */
   const generateToolAwareReply = useCallback(
     async (target: Bot, instruction: string) => {
-      const availableAgents = bots
-        .filter((bot) => bot.id !== target.id && bot.members.length === 0)
-        .map((bot) => ({ name: bot.name, role: bot.role }));
-      const history = [
-        ...toTurns(target.messages),
-        { role: "user" as const, name: "You", content: instruction },
-      ];
-      const calls: AgentToolCall[] = [];
-      let directAnswer = "";
-      let requestError = "";
+      // A turn-local registry makes newly created agents usable immediately,
+      // without waiting for React to render a new closure.
+      const registry = new Map(bots.filter((bot) => bot.members.length === 0).map((bot) => [bot.id, { ...bot, messages: [...bot.messages] }]));
+      const record = (body: string) => appendMessage(target.id, { id: newId("msg"), sender: { kind: "system" }, body });
       setBusyBots((current) => ({ ...current, [target.id]: true }));
-      await streamChat(
-        {
-          persona: target.persona,
-          botName: target.name,
-          history,
-          model,
-          availableAgents,
-        },
-        {
-          onMeta: (meta) => setLive(meta.live),
-          onDelta: (delta) => {
-            directAnswer += delta;
-          },
-          onToolCall: (call) => calls.push(call),
-          onError: (error) => {
-            requestError = error;
-          },
-        },
-      );
-
-      const availableNames = availableAgents.map((agent) => agent.name);
-      const invocations = calls
-        .map((call) => parseDelegateToolCall(call.name, call.arguments, availableNames))
-        .filter((call): call is NonNullable<typeof call> => Boolean(call));
-
-      if (invocations.length === 0) {
-        appendMessage(target.id, {
-          id: newId("msg"),
-          sender: { kind: "bot", name: target.name },
-          body: directAnswer.trim() || `⚠️ ${requestError || "The agent returned no answer."}`,
-        });
-        setBusyBots((current) => ({ ...current, [target.id]: false }));
-        return;
-      }
-
-      appendMessage(target.id, {
-        id: newId("msg"),
-        sender: { kind: "system" },
-        body: `Called delegate_to_agent → ${invocations.map((call) => `@${call.agentName}`).join(", ")}.`,
-      });
-
-      const toolResults: Array<{ agent: Bot; task: string; answer: string }> = [];
-      for (const invocation of invocations) {
-        const agent = bots.find((bot) => bot.name === invocation.agentName);
-        if (!agent) continue;
-        appendMessage(agent.id, {
-          id: newId("msg"),
-          sender: { kind: "bot", name: target.name },
-          body: invocation.task,
-        });
-        const answer = await generateReply(
-          agent.id,
-          {
-            name: agent.name,
-            persona: `${agent.persona}\n\n${target.name} invoked you through delegate_to_agent. Complete the delegated task now; your actual answer will be returned to ${target.name}.`,
-          },
-          undefined,
-          agent.id,
-          [
-            ...toTurns(agent.messages),
-            { role: "assistant", name: target.name, content: invocation.task },
-          ],
-        );
-        toolResults.push({
-          agent,
-          task: invocation.task,
-          answer: answer?.trim() || `${agent.name} returned no answer.`,
-        });
-      }
-
-      setBusyBots((current) => ({ ...current, [target.id]: false }));
-      await generateReply(
-        target.id,
-        {
-          name: target.name,
-          persona: `${target.persona}\n\nYou invoked delegate_to_agent and now have the real tool results. Answer the user using those results. Never invent additional agent output.`,
-        },
-        undefined,
-        target.id,
-        [
-          ...history,
-          ...toolResults.map(({ agent, task, answer }) => ({
-            role: "system" as const,
-            content: `delegate_to_agent result from ${agent.name} for ${JSON.stringify(task)}:\n${answer}`,
-          })),
-        ],
-      );
-    },
-    [appendMessage, bots, generateReply, model],
-  );
-
-  const spawnAndDelegate = useCallback(
-    async (coordinator: Bot, instruction: string) => {
-      appendMessage(coordinator.id, {
-        id: newId("msg"),
-        sender: { kind: "system" },
-        body: "Planning a delegation and creating independent agents…",
-      });
       try {
-        const plan = await requestDelegationPlan({
-          instruction,
-          coordinatorName: coordinator.name,
-          coordinatorPersona: coordinator.persona,
-          existingAgents: bots.map((bot) => bot.name),
-          history: toTurns(coordinator.messages),
-          model,
-        });
-        const occupied = new Set(bots.map((bot) => bot.name.toLowerCase()));
-        const spawned = plan.agents.map((spec, index): Bot => {
-          let name = spec.name.trim() || `Agent ${index + 1}`;
-          let suffix = 2;
-          while (occupied.has(name.toLowerCase())) name = `${spec.name} ${suffix++}`;
-          occupied.add(name.toLowerCase());
-          return {
-            id: newId("bot"),
-            name,
-            role: spec.role,
-            persona: `${spec.persona}\n\nYour delegated assignment: ${spec.task}`,
-            preview: `Delegated: ${spec.task}`,
-            timestamp: nowLabel(),
-            color: spec.color || DELEGATE_COLORS[index % DELEGATE_COLORS.length],
-            symbol: index % 2 === 0 ? "circle" : "diamond",
-            members: [],
-            messages: [{ id: newId("msg"), sender: { kind: "system" }, body: `Delegated task: ${spec.task}` }],
-          };
-        });
-        const groupId = newId("bot");
-        const group: Bot = {
-          id: groupId,
-          name: plan.groupName,
-          role: `Delegation led by ${coordinator.name}: ${plan.task}`,
-          persona: `A working group delegated by ${coordinator.name}.`,
-          preview: `${spawned.length} agents working together`,
-          timestamp: nowLabel(),
-          color: "#4fd1a5",
-          symbol: "capsule",
-          members: spawned.map((agent) => agent.name),
-          messages: [
-            {
-              id: newId("msg"),
-              sender: { kind: "system" },
-              body: `${coordinator.name} spawned ${spawned.map((agent) => `${agent.name} (${agent.role})`).join(", ")}.`,
+        const answer = await runWorkspaceTurn(
+          { persona: target.persona, botName: target.name,
+            history: [...toTurns(target.messages), { role: "user", name: "You", content: instruction }],
+            model: target.model ?? model },
+          {
+            record,
+            create: (spec) => {
+              let name = spec.name;
+              let suffix = 2;
+              const occupied = new Set([...registry.values()].map((bot) => bot.name.toLocaleLowerCase()));
+              while (occupied.has(name.toLocaleLowerCase())) name = `${spec.name} ${suffix++}`;
+              const agent: Bot = {
+                id: newId("bot"), name, role: spec.role, persona: spec.persona,
+                preview: `Created by ${target.name}`, timestamp: nowLabel(),
+                color: DELEGATE_COLORS[registry.size % DELEGATE_COLORS.length], symbol: "circle", members: [],
+                messages: [{ id: newId("msg"), sender: { kind: "system" }, body: `Created by ${target.name}.` }],
+              };
+              const worker = { ...agent, messages: [...agent.messages] };
+              registry.set(agent.id, worker);
+              setBots((previous) => [agent, ...previous]);
+              setOpenTabs((tabs) => [...tabs, agent.id]);
+              return worker;
             },
-            { id: newId("msg"), sender: { kind: "user" }, body: plan.task },
-          ],
-        };
-        setBots((previous) => [group, ...spawned, ...previous]);
-        setSelectedId(groupId);
-        setOpenTabs((tabs) => [...tabs.filter((id) => id !== groupId), groupId]);
-        appendMessage(coordinator.id, {
-          id: newId("msg"),
-          sender: { kind: "system" },
-          body: `Spawned ${spawned.map((agent) => agent.name).join(", ")} and delegated the work in “${group.name}”.`,
-        });
-        for (const agent of spawned) {
-          await generateReply(
-            groupId,
-            { name: agent.name, persona: agent.persona },
-            spawned.filter((peer) => peer.id !== agent.id).map((peer) => peer.name),
-            groupId,
-          );
-        }
+            find: (name) => [...registry.values()].find((agent) => agent.id !== target.id && agent.name.toLocaleLowerCase() === name.toLocaleLowerCase()),
+            run: async (agent, task) => {
+              const request: ChatMessage = { id: newId("msg"), sender: { kind: "bot", name: target.name }, body: task };
+              appendMessage(agent.id, request);
+              agent.messages = [...agent.messages, request];
+              const pendingId = newId("msg");
+              appendMessage(agent.id, { id: pendingId, sender: { kind: "bot", name: agent.name }, body: "", pending: true });
+              setBusyBots((current) => ({ ...current, [agent.id]: true }));
+              let text = "";
+              let error = "";
+              try {
+                await streamChat({
+                  persona: `${agent.persona}\nComplete the assignment from ${target.name}. Speak only as yourself. Your actual answer will be returned to the coordinator.`,
+                  botName: agent.name, history: toTurns(agent.messages), model: agent.model ?? target.model ?? model,
+                }, {
+                  onMeta: (meta) => setLive(meta.live),
+                  onDelta: (delta) => { text += delta; setMessagePartial(agent.id, pendingId, (message) => ({ ...message, body: text })); },
+                  onError: (message) => { error = message; },
+                });
+                if (error) throw new Error(error);
+                if (!text.trim()) throw new Error("Worker returned no answer");
+                agent.messages = [...agent.messages, { id: pendingId, sender: { kind: "bot", name: agent.name }, body: text }];
+                return text;
+              } catch (failure) {
+                error = failure instanceof Error ? failure.message : String(failure);
+                agent.messages = [...agent.messages, { id: pendingId, sender: { kind: "system" }, body: `Failed: ${error}` }];
+                throw failure;
+              } finally {
+                setMessagePartial(agent.id, pendingId, (message) => ({ ...message, pending: false, body: error ? `⚠️ ${error}` : text }));
+                patchBot(agent.id, (bot) => ({ ...bot, preview: error ? `Failed: ${error}` : text.split("\n")[0], timestamp: nowLabel() }));
+                setBusyBots((current) => ({ ...current, [agent.id]: false }));
+              }
+            },
+          },
+          () => [...registry.values()].filter((agent) => agent.id !== target.id).map(({ name, role }) => ({ name, role })),
+          async (request) => {
+            const result: ModelStep = { text: "", calls: [] };
+            await streamChat(request, {
+              onMeta: (meta) => { result.live = meta.live; setLive(meta.live); },
+              onDelta: (delta) => { result.text += delta; },
+              onToolCall: (call) => result.calls.push(call),
+              onAssistantMessage: (message) => { result.assistant = message; },
+              onError: (error) => { result.error = error; },
+            });
+            return result;
+          },
+        );
+        appendMessage(target.id, { id: newId("msg"), sender: { kind: "bot", name: target.name }, body: answer });
       } catch (error) {
-        appendMessage(coordinator.id, {
-          id: newId("msg"),
-          sender: { kind: "bot", name: coordinator.name },
-          body: `I couldn't create the delegation: ${error instanceof Error ? error.message : String(error)}`,
-        });
+        record(`⚠️ ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        setBusyBots((current) => ({ ...current, [target.id]: false }));
       }
     },
-    [appendMessage, bots, generateReply, model],
+    [appendMessage, bots, model, patchBot, setMessagePartial],
   );
 
   const delegateToMentionedAgents = useCallback(
@@ -485,65 +368,9 @@ export function useWorkspace() {
       setSelectedId(lead.id);
       setOpenTabs((tabs) => (tabs.includes(lead.id) ? tabs : [...tabs, lead.id]));
 
-      const userTurn = { role: "user" as const, name: "You", content: instruction };
-      const leadHistory = [...toTurns(lead.messages), userTurn];
-
-      if (helpers.length === 0) {
-        await generateReply(lead.id, { name: lead.name, persona: lead.persona }, undefined, lead.id, leadHistory);
-        return;
-      }
-
-      const helperNames = helpers.map((helper) => helper.name);
-      const request = await generateHiddenReply(
-        {
-          name: lead.name,
-          persona: `${lead.persona}\n\nFor this turn, delegate the useful research or subtask to ${helperNames.join(", ")}. Write only a concrete request for them. Do not answer the user yet.`,
-        },
-        leadHistory,
-      );
-      const helperRequest = request?.trim() || instruction;
-      const helperResults: Array<{ helper: Bot; answer: string }> = [];
-
-      for (const helper of helpers) {
-        appendMessage(helper.id, {
-          id: newId("msg"),
-          sender: { kind: "bot", name: lead.name },
-          body: helperRequest,
-        });
-        const answer = await generateReply(
-          helper.id,
-          {
-            name: helper.name,
-            persona: `${helper.persona}\n\nAnswer ${lead.name}'s delegated request with concrete work. Your answer will be returned to ${lead.name}.`,
-          },
-          undefined,
-          helper.id,
-          [...toTurns(helper.messages), { role: "assistant", name: lead.name, content: helperRequest }],
-        );
-        const completed = answer?.trim() || `${helper.name} did not return an answer.`;
-        helperResults.push({ helper, answer: completed });
-      }
-
-      await generateReply(
-        lead.id,
-        {
-          name: lead.name,
-          persona: `${lead.persona}\n\nYou have received the requested helper results. Use them as input, resolve any conflicts, and now answer the user's original request. Do not merely summarize the delegation process.`,
-        },
-        undefined,
-        lead.id,
-        [
-          ...leadHistory,
-          { role: "assistant", name: lead.name, content: helperRequest },
-          ...helperResults.map(({ helper, answer }) => ({
-            role: "assistant" as const,
-            name: helper.name,
-            content: answer,
-          })),
-        ],
-      );
+      await generateToolAwareReply(lead, instruction);
     },
-    [appendMessage, generateHiddenReply, generateReply],
+    [appendMessage, generateToolAwareReply],
   );
 
   /** Send the human draft to the currently selected chat. */
@@ -568,11 +395,6 @@ export function useWorkspace() {
         return;
       }
 
-      if (target.members.length === 0 && isDelegationRequest(body)) {
-        await spawnAndDelegate(target, body);
-        return;
-      }
-
       if (target.members.length === 0) {
         await generateToolAwareReply(target, body);
         return;
@@ -587,7 +409,7 @@ export function useWorkspace() {
         await generateReply(target.id, { name: member.name, persona: member.persona }, peers, target.id);
       }
     },
-    [selected, bots, appendMessage, delegateToMentionedAgents, generateReply, generateToolAwareReply, spawnAndDelegate],
+    [selected, bots, appendMessage, delegateToMentionedAgents, generateReply, generateToolAwareReply],
   );
 
   /** Ask the group to continue talking amongst themselves for N rounds. */

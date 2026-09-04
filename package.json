@@ -15,10 +15,11 @@
     "test": "vitest run",
     "electron:dev": "NEXT_PUBLIC_DESKTOP=1 electron electron/main.js",
     "prepare:standalone": "node scripts/prepare-standalone.mjs",
-    "pack:prepare": "npm run build && npm run prepare:standalone",
+    "pack:prepare": "npm run build:icon && npm run build && npm run prepare:standalone",
     "dist": "npm run pack:prepare && electron-builder",
     "dist:mac": "npm run pack:prepare && electron-builder --mac dmg",
-    "dist:linux": "npm run pack:prepare && electron-builder --linux dir"
+    "dist:linux": "npm run pack:prepare && electron-builder --linux dir",
+    "build:icon": "node scripts/build-icon.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.84.4",
@@ -38,6 +39,7 @@
     "electron-builder": "25.1.8",
     "playwright": "^1.49.1",
     "postcss": "8.5.6",
+    "sharp": "^0.34.5",
     "tailwindcss": "3.4.17",
     "typescript": "5.9.3",
     "vitest": "^2.1.9"
@@ -69,7 +71,8 @@
           ]
         }
       ],
-      "artifactName": "LunaDesk-${version}-${arch}.${ext}"
+      "artifactName": "LunaDesk-${version}-${arch}.${ext}",
+      "icon": "electron/assets/icon.png"
     },
     "dmg": {
       "title": "LunaDesk ${version}"
@@ -78,7 +81,8 @@
       "target": [
         "dir"
       ],
-      "category": "Utility"
+      "category": "Utility",
+      "icon": "electron/assets/icon.png"
     }
   }
 }

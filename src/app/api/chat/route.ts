@@ -27,6 +27,8 @@ export async function POST(req: NextRequest) {
     model: body.model ?? DEFAULT_MODEL,
     peers: body.peers,
     availableAgents: body.availableAgents,
+    orchestration: body.orchestration === true,
+    continuation: Array.isArray(body.continuation) ? body.continuation : undefined,
   };
 
   const { runtime: agent, live } = await selectRuntime(input.model);

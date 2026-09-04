@@ -44,10 +44,11 @@ describe("desktop packaging contract", () => {
     expect(prepare).toContain('"@earendil-works", "pi-ai"');
   });
 
-  it("runs the packaged Next server through Electron's Node mode", async () => {
+  it("runs the server in a background helper instead of a second Dock app", async () => {
     const main = await readFile(path.join(root, "electron/main.js"), "utf8");
-    expect(main).toContain('ELECTRON_RUN_AS_NODE: "1"');
+    expect(main).toContain('serviceName: "LunaDesk Server"');
     expect(main).toContain('LUNA_WORKSPACE_STORE: path.join(app.getPath("userData"), "workspace.json")');
-    expect(main).toContain("spawn(process.execPath, [serverEntry]");
+    expect(main).toContain("utilityProcess.fork(serverEntry, []");
+    expect(main).not.toContain("spawn(process.execPath,");
   });
 });

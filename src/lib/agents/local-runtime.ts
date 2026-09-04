@@ -1,3 +1,4 @@
+import { fallbackDelegationPlan, isDelegationRequest } from "../delegation";
 import type { ModelSelection } from "../config";
 import type { AgentRuntime, AgentTurn, RespondChunk, RespondInput } from "../types";
 
@@ -22,7 +23,12 @@ export class LocalAgentRuntime implements AgentRuntime {
     const requestedAgents = input.availableAgents?.filter((agent) =>
       lastUser ? normalized(lastUser.content).includes(normalized(agent.name)) : false,
     );
-    if (lastUser && requestedAgents?.length) {
+    if (input.orchestration && !input.continuation?.length && lastUser && isDelegationRequest(lastUser.content)) {
+      yield { type: "tool_call", toolCallId: "local-spawn", toolName: "spawn_agents", arguments: { agents: fallbackDelegationPlan(lastUser.content).agents } };
+      yield { type: "done" };
+      return;
+    }
+    if (!input.continuation?.length && lastUser && requestedAgents?.length) {
       for (const agent of requestedAgents) {
         yield {
           type: "tool_call",

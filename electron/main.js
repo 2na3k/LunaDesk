@@ -5,9 +5,8 @@
 // BrowserWindow. In dev (`npm run electron:dev`) we simply attach to the running
 // `next dev` server on port 3000.
 
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, shell, utilityProcess } = require("electron");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
 const http = require("node:http");
 const net = require("node:net");
 
@@ -51,7 +50,10 @@ async function startNextServer() {
   const port = await getFreePort();
   // The standalone build lives next to the packaged resources.
   const serverEntry = path.join(process.resourcesPath, "app", "server.js");
-  serverProcess = spawn(process.execPath, [serverEntry], {
+  // The Electron helper stays out of the Dock. Launching process.execPath
+  // here registers another copy of the main app with macOS Launch Services.
+  serverProcess = utilityProcess.fork(serverEntry, [], {
+    serviceName: "LunaDesk Server",
     env: {
       ...process.env,
       PORT: String(port),
@@ -59,10 +61,6 @@ async function startNextServer() {
       NODE_ENV: "production",
       NEXT_PUBLIC_DESKTOP: "1",
       LUNA_WORKSPACE_STORE: path.join(app.getPath("userData"), "workspace.json"),
-      // A packaged Electron executable only behaves as Node when this flag is
-      // present. Without it, spawning process.execPath recursively launches
-      // more LunaDesk windows instead of running Next's server.js.
-      ELECTRON_RUN_AS_NODE: "1",
     },
     stdio: "inherit",
   });
@@ -72,7 +70,11 @@ async function startNextServer() {
 }
 
 async function createWindow() {
+  const icon = path.join(__dirname, "assets", "icon.png");
+  // Set the running Dock icon too, including development and cached macOS installs.
+  if (process.platform === "darwin") app.dock.setIcon(icon);
   mainWindow = new BrowserWindow({
+    icon,
     width: 1180,
     height: 780,
     minWidth: 900,

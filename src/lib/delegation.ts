@@ -39,7 +39,7 @@ const SPECIALISTS = [
 ] as const;
 
 function normalized(text: string): string {
-  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").toLowerCase();
 }
 
 /** Cheap routing guard so ordinary messages do not pay for an orchestration call. */
@@ -47,6 +47,7 @@ export function isDelegationRequest(text: string): boolean {
   const value = normalized(text);
   if (/^\s*\/(?:delegate|spawn)\b/.test(value)) return true;
   if (/\b(?:spawn|delegate|delegat)\w*\b/.test(value)) return true;
+  if (/\b(?:goi|tao|them|cho|spawn|recruit)\b.*\b[1-5]\s+(?:(?:thang|con)\s+)?(?:de|tro ly|agents?|helpers?|workers?)\b/.test(value)) return true;
   const createVerb = /\b(?:create|make|tao|de)\b/.test(value);
   const agentNoun = /\b(?:agents?|bots?|teammates?|subagents?|nhan vien)\b/.test(value);
   const numberedNames = /\b[\p{L}_-]+\s*1\b.*\b[\p{L}_-]+\s*2\b/u.test(value);
@@ -55,7 +56,7 @@ export function isDelegationRequest(text: string): boolean {
 
 function explicitNames(instruction: string): string[] {
   const matches = instruction.match(/[\p{L}][\p{L}\p{M}'_-]*\s+\d+/gu) ?? [];
-  const commandWords = new Set(["spawn", "delegate", "delegat", "create", "make", "tao", "de"]);
+  const commandWords = new Set(["spawn", "delegate", "delegat", "create", "make", "tao", "de", "goi", "lam", "cho", "them"]);
   return [
     ...new Set(
       matches
@@ -67,11 +68,11 @@ function explicitNames(instruction: string): string[] {
 
 export function fallbackDelegationPlan(instruction: string): DelegationPlan {
   const names = explicitNames(instruction);
-  const countMatch = normalized(instruction).match(/\b([2-5])\s+(?:agents?|bots?|teammates?|subagents?)\b/);
+  const countMatch = normalized(instruction).match(/\b([1-5])\s+(?:(?:thang|con)\s+)?(?:de|tro ly|agents?|bots?|teammates?|subagents?|helpers?|workers?)\b/);
   const count = names.length || Number(countMatch?.[1] ?? 3);
   const chosenNames = names.length
     ? names
-    : Array.from({ length: Math.min(5, Math.max(2, count)) }, (_, index) => `Agent ${index + 1}`);
+    : Array.from({ length: Math.min(5, Math.max(1, count)) }, (_, index) => `Agent ${index + 1}`);
   return {
     groupName: `Delegation · ${chosenNames.map((name) => name.replace(/\s+\d+$/, "")).join(" / ")}`,
     task: instruction.replace(/^\s*\/(?:delegate|spawn)\s*/i, "").trim() || instruction.trim(),

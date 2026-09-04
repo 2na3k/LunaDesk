@@ -1,3 +1,4 @@
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import type { AgentTurn, ChatMessage } from "./types";
 import type { ModelSelection } from "./config";
 
@@ -6,6 +7,7 @@ export interface StreamCallbacks {
   onDelta: (delta: string) => void;
   onDone?: () => void;
   onError?: (error: string) => void;
+  onAssistantMessage?: (message: AssistantMessage) => void;
   onToolCall?: (call: AgentToolCall) => void;
 }
 
@@ -32,6 +34,8 @@ export interface ChatRequest {
   history: AgentTurn[];
   model: ModelSelection;
   peers?: string[];
+  orchestration?: boolean;
+  continuation?: Message[];
   availableAgents?: Array<{ name: string; role: string }>;
 }
 
@@ -47,6 +51,10 @@ export async function streamChat(
     body: JSON.stringify(req),
     signal,
   });
+  if (!res.ok) {
+    cb.onError?.(await res.text() || `HTTP ${res.status}`);
+    return;
+  }
   if (!res.body) {
     cb.onError?.("No response body");
     return;
@@ -77,6 +85,8 @@ export async function streamChat(
         cb.onDelta(String(evt.delta ?? ""));
       } else if (evt.type === "done") {
         cb.onDone?.();
+      } else if (evt.type === "assistant_message") {
+        cb.onAssistantMessage?.(evt.assistantMessage as AssistantMessage);
       } else if (evt.type === "tool_call") {
         cb.onToolCall?.({
           id: String(evt.toolCallId ?? ""),
