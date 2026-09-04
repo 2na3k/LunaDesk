@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BotMark } from "./BotMark";
 import { MessageRow } from "./MessageRow";
 import { Composer } from "./Composer";
@@ -11,11 +11,24 @@ export function ChatPane({ ws }: { ws: Workspace }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const selected = ws.selected;
   const msgCount = selected?.messages.length ?? 0;
+  const [highlight, setHighlight] = useState<string | null>(null);
+  const focus = ws.messageFocus?.botId === selected?.id ? ws.messageFocus : null;
+
+  useEffect(() => {
+    if (!focus) { setHighlight(null); return; }
+    const element = [...(scrollRef.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? [])]
+      .find((item) => item.dataset.messageId === focus.messageId);
+    if (!element) return;
+    element.scrollIntoView({ block: "center", behavior: "instant" });
+    setHighlight(focus.messageId);
+    const timeout = window.setTimeout(() => setHighlight(null), 2500);
+    return () => window.clearTimeout(timeout);
+  }, [focus]);
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [msgCount, ws.selectedId, selected?.messages[msgCount - 1]?.body]);
+    if (el && !focus) el.scrollTop = el.scrollHeight;
+  }, [msgCount, ws.selectedId, selected?.messages[msgCount - 1]?.body, focus]);
 
   return (
     <div className="flex h-full min-w-0 flex-1 bg-luna-content">
@@ -41,7 +54,10 @@ export function ChatPane({ ws }: { ws: Workspace }) {
             <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
               <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-6 py-6">
                 {selected.messages.map((m) => (
-                  <MessageRow key={m.id} message={m} />
+                  <div key={m.id} data-message-id={m.id} data-highlighted={highlight === m.id || undefined}
+                    >
+                    <MessageRow message={m} highlighted={highlight === m.id} bots={ws.bots} onOpen={ws.openMessageReference} />
+                  </div>
                 ))}
                 {selected.members.length > 0 && (
                   <div className="flex justify-center pt-2">

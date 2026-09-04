@@ -16,6 +16,14 @@ export interface ChatMessage {
   timestamp?: string;
   /** Marks a message that is still streaming in. */
   pending?: boolean;
+  links?: MessageReference[];
+  activity?: "waiting" | "synthesizing" | "complete" | "failed";
+}
+
+export interface MessageReference {
+  botId: string;
+  name: string;
+  messageId?: string;
 }
 
 /**

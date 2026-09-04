@@ -8,7 +8,7 @@ import { routeMentionDelegation } from "./delegation";
 import { runWorkspaceTurn, type ModelStep } from "./orchestration";
 import { findMentionedAgents } from "./mentions";
 import { updateBotMetadata, type BotMetadataUpdate } from "./bot-metadata";
-import type { Bot, ChatMessage } from "./types";
+import type { Bot, ChatMessage, MessageReference } from "./types";
 
 const STORAGE_KEY = "lunadesk.workspace.v1";
 const LEGACY_SAMPLE_NAMES = new Set([
@@ -42,6 +42,7 @@ function migrateBots(bots: Bot[] | undefined): Bot[] {
 export function useWorkspace() {
   const persistence = useRef(Promise.resolve());
   const [bots, setBots] = useState<Bot[]>([]);
+  const [messageFocus, setMessageFocus] = useState<{ botId: string; messageId: string; nonce: number } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [searchText, setSearchText] = useState("");
@@ -137,11 +138,22 @@ export function useWorkspace() {
   }, [bots, searchText]);
 
   const openTab = useCallback((id: string) => {
+    setMessageFocus(null);
     setSelectedId(id);
     setInspectorBotId(null);
     setOpenTabs((tabs) => (tabs.includes(id) ? tabs : [...tabs, id]));
     setPickerOpen(false);
   }, []);
+
+  const openMessageReference = useCallback((reference: MessageReference) => {
+    const bot = bots.find((item) => item.id === reference.botId);
+    if (!bot) return;
+    const message = reference.messageId
+      ? bot.messages.find((item) => item.id === reference.messageId)
+      : [...bot.messages].reverse().find((item) => item.sender.kind === "bot" && item.sender.name === bot.name);
+    openTab(bot.id);
+    if (message) setMessageFocus({ botId: bot.id, messageId: message.id, nonce: Date.now() });
+  }, [bots, openTab]);
 
   const closeTab = useCallback(
     (id: string) => {
@@ -261,15 +273,24 @@ export function useWorkspace() {
       // A turn-local registry makes newly created agents usable immediately,
       // without waiting for React to render a new closure.
       const registry = new Map(bots.filter((bot) => bot.members.length === 0).map((bot) => [bot.id, { ...bot, messages: [...bot.messages] }]));
-      const record = (body: string) => appendMessage(target.id, { id: newId("msg"), sender: { kind: "system" }, body });
+      const activities: string[] = [];
+      const record = (body: string, agent?: Bot) => appendMessage(target.id, {
+        id: newId("msg"), sender: { kind: "system" }, body,
+        links: agent ? [{ botId: agent.id, name: agent.name, messageId: [...agent.messages].reverse().find((message) => message.sender.kind === "bot" && message.sender.name === agent.name)?.id }] : undefined,
+      });
       setBusyBots((current) => ({ ...current, [target.id]: true }));
       try {
-        const answer = await runWorkspaceTurn(
+        await runWorkspaceTurn(
           { persona: target.persona, botName: target.name,
             history: [...toTurns(target.messages), { role: "user", name: "You", content: instruction }],
             model: target.model ?? model },
           {
             record,
+            announce: (body) => {
+              const id = newId("msg");
+              activities.push(id);
+              appendMessage(target.id, { id, sender: { kind: "bot", name: target.name }, body, activity: "waiting" });
+            },
             create: (spec) => {
               let name = spec.name;
               let suffix = 2;
@@ -294,6 +315,9 @@ export function useWorkspace() {
               agent.messages = [...agent.messages, request];
               const pendingId = newId("msg");
               appendMessage(agent.id, { id: pendingId, sender: { kind: "bot", name: agent.name }, body: "", pending: true });
+              const reference = { botId: agent.id, name: agent.name, messageId: pendingId };
+              appendMessage(target.id, { id: newId("msg"), sender: { kind: "system" }, body: `Sent work to @${agent.name} in its own chat.`, links: [reference] });
+              for (const id of activities) setMessagePartial(target.id, id, (message) => message.activity !== "waiting" ? message : ({ ...message, links: [...(message.links ?? []), reference] }));
               setBusyBots((current) => ({ ...current, [agent.id]: true }));
               let text = "";
               let error = "";
@@ -323,19 +347,34 @@ export function useWorkspace() {
           },
           () => [...registry.values()].filter((agent) => agent.id !== target.id).map(({ name, role }) => ({ name, role })),
           async (request) => {
+            // Preserve the model's earlier words; only stop their activity indicator.
+            for (const id of activities) setMessagePartial(target.id, id, (message) => ({ ...message, activity: "complete" }));
+            let messageId: string | undefined;
             const result: ModelStep = { text: "", calls: [] };
+            try {
             await streamChat(request, {
               onMeta: (meta) => { result.live = meta.live; setLive(meta.live); },
-              onDelta: (delta) => { result.text += delta; },
+              onDelta: (delta) => {
+                result.text += delta;
+                if (!messageId) {
+                  messageId = newId("msg");
+                  appendMessage(target.id, { id: messageId, sender: { kind: "bot", name: target.name }, body: result.text, pending: true });
+                } else {
+                  setMessagePartial(target.id, messageId, (message) => ({ ...message, body: result.text }));
+                }
+              },
               onToolCall: (call) => result.calls.push(call),
               onAssistantMessage: (message) => { result.assistant = message; },
               onError: (error) => { result.error = error; },
             });
+            } finally {
+              if (messageId) setMessagePartial(target.id, messageId, (message) => ({ ...message, pending: false }));
+            }
             return result;
           },
         );
-        appendMessage(target.id, { id: newId("msg"), sender: { kind: "bot", name: target.name }, body: answer });
       } catch (error) {
+        for (const id of activities) setMessagePartial(target.id, id, (message) => ({ ...message, activity: "failed" }));
         record(`⚠️ ${error instanceof Error ? error.message : String(error)}`);
       } finally {
         setBusyBots((current) => ({ ...current, [target.id]: false }));
@@ -379,10 +418,15 @@ export function useWorkspace() {
       const body = text.trim();
       if (!body || !selected) return;
       const target = selected;
+      setMessageFocus(null);
       appendMessage(target.id, { id: newId("msg"), sender: { kind: "user" }, body });
 
       const mentioned = findMentionedAgents(body, bots);
       if (mentioned.length > 0) {
+        if (target.members.length === 0) {
+          await generateToolAwareReply(target, body);
+          return;
+        }
         await delegateToMentionedAgents(target, body, mentioned);
         return;
       }
@@ -545,6 +589,8 @@ export function useWorkspace() {
 
   return {
     bots,
+    messageFocus,
+    openMessageReference,
     filteredBots,
     selected,
     inspectorBot,

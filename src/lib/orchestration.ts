@@ -7,7 +7,8 @@ export interface WorkspaceToolHost {
   create(spec: WorkerSpec): Bot;
   find(name: string): Bot | undefined;
   run(agent: Bot, task: string): Promise<string>;
-  record(message: string): void;
+  record(message: string, agent?: Bot): void;
+  announce?(text: string): void;
 }
 
 function required(args: Record<string, unknown>, key: string): string {
@@ -27,7 +28,7 @@ export async function executeWorkspaceTool(call: AgentToolCall, host: WorkspaceT
     const args = call.arguments;
     if (call.name === "create_agent") {
       const agent = host.create(spec(args));
-      host.record(`Created @${agent.name} in its own chat.`);
+      host.record(`Created @${agent.name} in its own chat.`, agent);
       return { ok: true, agent: agent.name, threadId: agent.id };
     }
     if (call.name === "spawn_agents") {
@@ -38,15 +39,16 @@ export async function executeWorkspaceTool(call: AgentToolCall, host: WorkspaceT
       const assignments = args.agents.map((value) => ({ ...spec(value), task: required(value, "task") }));
       const workers = assignments.map((assignment) => ({ agent: host.create(assignment), task: assignment.task }));
       host.record(`Spawned ${workers.map(({ agent }) => `@${agent.name}`).join(", ")} in independent chats.`);
+      if (typeof args.update === "string" && args.update.trim()) host.announce?.(args.update.trim());
       const results = await Promise.all(workers.map(async ({ agent, task }) => {
         try {
           const answer = await host.run(agent, task);
           if (!answer.trim()) throw new Error("Worker returned no answer");
-          host.record(`@${agent.name} completed its assignment.`);
+          host.record(`@${agent.name} completed its assignment.`, agent);
           return { ok: true, agent: agent.name, threadId: agent.id, answer };
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          host.record(`@${agent.name} failed: ${message}`);
+          host.record(`@${agent.name} failed: ${message}`, agent);
           return { ok: false, agent: agent.name, threadId: agent.id, error: message };
         }
       }));
@@ -57,10 +59,10 @@ export async function executeWorkspaceTool(call: AgentToolCall, host: WorkspaceT
       const agent = host.find(name);
       if (!agent) throw new Error(`Unknown agent: ${name}`);
       const task = required(args, call.name === "send_message" ? "message" : "task");
-      host.record(`Sent work to @${agent.name} in its own chat.`);
+      if (typeof args.update === "string" && args.update.trim()) host.announce?.(args.update.trim());
       const answer = await host.run(agent, task);
       if (!answer.trim()) throw new Error("Worker returned no answer");
-      host.record(`@${agent.name} replied.`);
+      host.record(`@${agent.name} replied.`, agent);
       return { ok: true, agent: agent.name, threadId: agent.id, answer };
     }
     throw new Error(`Unknown workspace tool: ${call.name}`);

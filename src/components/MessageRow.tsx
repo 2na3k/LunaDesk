@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import { MarkdownBody } from "./MarkdownBody";
-import type { ChatMessage } from "@/lib/types";
+import type { Bot, ChatMessage, MessageReference } from "@/lib/types";
+import { MessageMentions } from "./MessageMentions";
 
-export function MessageRow({ message }: { message: ChatMessage }) {
+export function MessageRow({ message, highlighted = false, bots = [], onOpen = () => {} }: { message: ChatMessage; highlighted?: boolean; bots?: Bot[]; onOpen?: (reference: MessageReference) => void }) {
+  const highlightClass = `transition-shadow duration-500 motion-reduce:transition-none ${highlighted ? "ring-2 ring-[#8faff7]/50" : ""}`;
   if (message.sender.kind === "system") {
     return (
-      <div className="group/message flex w-full items-center justify-center gap-1 py-0.5 text-center text-[12.5px] font-medium text-luna-secondary">
-        <span>{message.body}</span>
-        <CopyButton text={message.body} />
+      <div className="flex w-full items-center justify-center py-0.5 text-center text-[12.5px] font-medium text-luna-secondary">
+        <span><MessageMentions message={message} bots={bots} onOpen={onOpen} /></span>
       </div>
     );
   }
@@ -18,7 +19,7 @@ export function MessageRow({ message }: { message: ChatMessage }) {
     return (
       <div className="group/message flex items-start justify-end gap-1">
         <CopyButton text={message.body} />
-        <div className="max-w-[70%] rounded-[17px] bg-luna-bubble px-3.5 py-2.5 text-[14.5px] leading-relaxed text-black">
+        <div data-message-bubble className={`max-w-[70%] rounded-[17px] bg-luna-bubble px-3.5 py-2.5 text-[14.5px] leading-relaxed text-black ${highlightClass}`}>
           <MarkdownBody darkText>{message.body}</MarkdownBody>
         </div>
       </div>
@@ -29,8 +30,13 @@ export function MessageRow({ message }: { message: ChatMessage }) {
     <div className="flex flex-col gap-1.5">
       <span className="pl-1 text-[12.5px] font-medium text-luna-secondary">{message.sender.name}</span>
       <div className="group/message flex items-start gap-1">
-        <div className="max-w-[75%] rounded-[17px] bg-luna-elevated px-3.5 py-2.5 text-[14.5px] leading-relaxed text-luna-primary">
-          {message.body ? (
+        <div data-message-bubble className={`max-w-[75%] rounded-[17px] bg-luna-elevated px-3.5 py-2.5 text-[14.5px] leading-relaxed text-luna-primary ${highlightClass}`}>
+          {message.activity ? (
+            <div role="status" className="flex items-start gap-2">
+              {(message.activity === "waiting" || message.activity === "synthesizing") && <span className="mt-1 h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-[#8faff7]/30 border-t-[#8faff7] motion-reduce:animate-none" aria-hidden />}
+              <span><MessageMentions message={message} bots={bots} onOpen={onOpen} /></span>
+            </div>
+          ) : message.body ? (
             <MarkdownBody>{message.body}</MarkdownBody>
           ) : (
             <span className="luna-typing text-luna-secondary" aria-label="typing">

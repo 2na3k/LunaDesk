@@ -37,6 +37,17 @@ function assistant(calls: AgentToolCall[]): AssistantMessage {
 }
 
 describe("executable workspace delegation", () => {
+  it("shows the model-authored update before waiting for workers", async () => {
+    const { host } = fixture();
+    const announce = vi.fn();
+    host.announce = announce;
+    host.run = vi.fn(async () => {
+      expect(announce).toHaveBeenCalledWith("Tao nhờ ba đệ xem riêng từng hướng rồi sẽ tổng hợp lại.");
+      return "Actual worker output";
+    });
+    await executeWorkspaceTool({ ...call, arguments: { ...call.arguments, update: "Tao nhờ ba đệ xem riêng từng hướng rồi sẽ tổng hợp lại." } }, host);
+    expect(announce).toHaveBeenCalledTimes(1);
+  });
   it("creates three real threads and returns their actual messages", async () => {
     const { host, bots } = fixture();
     const output = await executeWorkspaceTool(call, host);
